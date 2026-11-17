@@ -109,6 +109,16 @@ tamanho da tela quando começa. Para ver os monitores e qual é o principal: `in
 Com a tela parada, o servidor não reenvia a mesma imagem: manda de novo só a cada ~3 s, para manter a
 conexão. Por isso o `iPad recebendo` cai para perto de zero quando nada se mexe; é o esperado.
 
+### Abrir sozinho com o Windows
+
+- **Ligar:** dois cliques em **`ligar-com-windows.bat`**. Ele põe um atalho do `iniciar.bat` na pasta
+  Inicializar do seu usuário (não precisa de administrador). Ao entrar no Windows, o Tela 2 abre
+  **minimizado** na barra de tarefas; abra a janela se precisar ver o endereço com a chave.
+- **Desligar:** dois cliques em **`desligar-com-windows.bat`**. Ele apaga só esse atalho.
+
+Se o monitor virtual não estiver pronto quando o Windows abrir, o servidor avisa e não inicia (é a
+trava de segurança); nesse caso, feche a janela e rode o `iniciar.bat` de novo.
+
 ### Toque
 
 | No iPad | No PC (monitor virtual) |
