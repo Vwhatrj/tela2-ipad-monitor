@@ -142,6 +142,21 @@
     proximoToque();
   }
 
+  /* Rolagem com dois dedos: vira a rodinha do mouse no PC. Movimentos seguidos somam num pedido so.
+     Dedos para baixo = conteudo desce (como no iPad): rodinha para cima. */
+  var FATOR_RODA = 3; /* 40 px de dedo = 1 dente da rodinha (120) */
+  function enviarRolagem(x, y, dxPx, dyPx) {
+    var dx = -Math.round(dxPx * FATOR_RODA), dy = Math.round(dyPx * FATOR_RODA);
+    if (!dx && !dy) { return; }
+    var ultimo = fila[fila.length - 1];
+    if (ultimo && ultimo.a === 'rolar') {
+      ultimo.dx += dx; ultimo.dy += dy; ultimo.x = x; ultimo.y = y;
+    } else {
+      fila.push({ a: 'rolar', x: x, y: y, dx: dx, dy: dy });
+    }
+    proximoToque();
+  }
+
   function enviarTecla(nome) {
     fila.push({ tecla: nome });
     proximoToque();
@@ -164,6 +179,7 @@
       url = '/tecla?chave=' + chave + '&k=' + t.tecla;
     } else {
       url = '/toque?chave=' + chave + '&a=' + t.a + '&x=' + t.x.toFixed(4) + '&y=' + t.y.toFixed(4);
+      if (t.a === 'rolar') { url += '&dx=' + t.dx + '&dy=' + t.dy; }
     }
     var xhr = new XMLHttpRequest();
     enviando = true;
@@ -256,10 +272,30 @@
   }
 
   var inicio = null, arrastando = false, segurou = false, timerSegurar = null;
+  var rolando = false, ultimoMeio = null, esperarSoltarTudo = false;
+
+  /* Ponto medio entre os dois primeiros dedos. */
+  function meio(e) {
+    var a = e.touches[0], b = e.touches[1];
+    var cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
+    var r = tela.getBoundingClientRect();
+    return { cx: cx, cy: cy, x: (cx - r.left) / r.width, y: (cy - r.top) / r.height };
+  }
 
   camada.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    if (e.touches.length > 1) { return; }
+    if (e.touches.length >= 2) {
+      /* Segundo dedo: cancela o toque/arrasto de um dedo e passa a rolar. */
+      clearTimeout(timerSegurar);
+      if (arrastando && inicio) { enviarToque('cima', inicio.x, inicio.y); }
+      inicio = null;
+      arrastando = false;
+      rolando = true;
+      esperarSoltarTudo = true;
+      ultimoMeio = meio(e);
+      return;
+    }
+    if (esperarSoltarTudo) { return; }
     inicio = posicao(e);
     ultimoToqueY = Math.min(Math.max(inicio.y, 0), 1);
     arrastando = false;
@@ -273,6 +309,12 @@
 
   camada.addEventListener('touchmove', function (e) {
     e.preventDefault();
+    if (rolando && e.touches.length >= 2) {
+      var m = meio(e);
+      enviarRolagem(m.x, m.y, m.cx - ultimoMeio.cx, m.cy - ultimoMeio.cy);
+      ultimoMeio = m;
+      return;
+    }
     if (!inicio || segurou) { return; }
     var p = posicao(e);
     if (!arrastando) {
@@ -287,6 +329,12 @@
   function fimToque(e) {
     e.preventDefault();
     clearTimeout(timerSegurar);
+    if (e.touches.length < 2) { rolando = false; }
+    if (esperarSoltarTudo) {
+      /* Depois de rolar, o ultimo dedo a sair nao vira clique. */
+      if (e.touches.length === 0) { esperarSoltarTudo = false; }
+      return;
+    }
     if (!inicio) { return; }
     var p = posicao(e);
     if (arrastando) {

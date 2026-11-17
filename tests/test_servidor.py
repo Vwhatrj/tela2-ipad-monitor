@@ -66,6 +66,14 @@ class TesteHTTP(unittest.TestCase):
             return self.toque_aceito
         servidor.tocar = tocar_falso
 
+        self.rolagens = []
+        self._rolar_original = servidor.rolar
+
+        def rolar_falso(x, y, dx, dy, area, permitir_principal=False):
+            self.rolagens.append((x, y, dx, dy))
+            return self.toque_aceito
+        servidor.rolar = rolar_falso
+
         # Teclado falso: so anota (nunca digita de verdade).
         self.digitado = []
         self.janela_no_ipad = True
@@ -86,6 +94,7 @@ class TesteHTTP(unittest.TestCase):
 
     def tearDown(self):
         servidor.tocar = self._tocar_original
+        servidor.rolar = self._rolar_original
         servidor.digitar = self._digitar_original
         servidor.apertar_tecla = self._tecla_original
 
@@ -153,6 +162,29 @@ class TesteHTTP(unittest.TestCase):
     def test_toque_fora_do_monitor_da_409(self):
         self.toque_aceito = False  # como se o monitor virtual tivesse sumido
         self.assertEqual(self.get("/toque?chave={}&a=clique&x=0.5&y=0.5".format(CHAVE))[0], 409)
+
+    # Rolagem com dois dedos
+    def test_rolar_com_chave(self):
+        self.assertEqual(self.get("/toque?chave={}&a=rolar&x=0.5&y=0.4&dx=-120&dy=360".format(CHAVE))[0], 204)
+        self.assertEqual(self.rolagens, [(0.5, 0.4, -120, 360)])
+        self.assertEqual(self.toques, [], "rolar nao clica")
+
+    def test_rolar_sem_chave_nao_rola(self):
+        self.assertEqual(self.get("/toque?a=rolar&x=0.5&y=0.5&dy=120")[0], 403)
+        self.assertEqual(self.rolagens, [])
+
+    def test_rolar_com_valor_invalido_da_400(self):
+        self.assertEqual(self.get("/toque?chave={}&a=rolar&x=0.5&y=0.5&dy=muito".format(CHAVE))[0], 400)
+        self.assertEqual(self.rolagens, [])
+
+    def test_coordenada_nan_da_400(self):
+        self.assertEqual(self.get("/toque?chave={}&a=clique&x=nan&y=0.5".format(CHAVE))[0], 400)
+        self.assertEqual(self.get("/toque?chave={}&a=rolar&x=0.5&y=inf&dy=120".format(CHAVE))[0], 400)
+        self.assertEqual(self.toques + self.rolagens, [])
+
+    def test_rolar_fora_do_monitor_da_409(self):
+        self.toque_aceito = False
+        self.assertEqual(self.get("/toque?chave={}&a=rolar&x=0.5&y=0.5&dy=120".format(CHAVE))[0], 409)
 
     # Limite de tentativas
     def test_cinco_erros_bloqueiam_mesmo_com_chave_certa(self):
@@ -270,10 +302,95 @@ class TesteTravaDoToque(unittest.TestCase):
         # O Windows recusa o SendInput se o tamanho da estrutura estiver errado.
         self.assertEqual(ctypes.sizeof(servidor.INPUT), 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28)
 
+    def test_rolar_em_monitor_que_sumiu_nao_mexe_no_mouse(self):
+        antes = self.posicao()
+        self.assertFalse(servidor.rolar(0.5, 0.5, 0, 120, self.INEXISTENTE))
+        self.assertEqual(self.posicao(), antes)
+
     def test_tocar_em_monitor_que_sumiu_nao_mexe_no_mouse(self):
         antes = self.posicao()
         self.assertFalse(servidor.tocar("clique", 0.5, 0.5, self.INEXISTENTE))
         self.assertEqual(self.posicao(), antes)
+
+
+class TesteEsperarMonitor(unittest.TestCase):
+    PRINCIPAL = TesteEscolhaDoMonitor.PRINCIPAL
+    VIRTUAL = AREA_VIRTUAL
+
+    def test_espera_o_monitor_virtual_aparecer(self):
+        leituras = [[self.PRINCIPAL], [self.PRINCIPAL], [self.PRINCIPAL, self.VIRTUAL]]
+        pausas = []
+        achado = servidor.esperar_monitor(None, False, 30, ler=lambda: leituras.pop(0), dormir=pausas.append)
+        self.assertEqual(achado, 2)
+        self.assertEqual(len(pausas), 2)
+
+    def test_desiste_depois_do_tempo(self):
+        pausas = []
+        with self.assertRaises(SystemExit):
+            servidor.esperar_monitor(None, False, 6, ler=lambda: [self.PRINCIPAL], dormir=pausas.append)
+        self.assertEqual(len(pausas), 3)  # 6 s / 2 s
+
+    def test_monitor_pedido_nao_espera(self):
+        pausas = []
+        with self.assertRaises(SystemExit):
+            servidor.esperar_monitor(1, False, 30, ler=lambda: [self.PRINCIPAL, self.VIRTUAL], dormir=pausas.append)
+        self.assertEqual(pausas, [])
+
+
+class TesteQuadroNitido(unittest.TestCase):
+    def test_so_depois_de_meio_segundo_parado(self):
+        self.assertFalse(servidor.deve_enviar_nitido(10.0, 10.3, False, 75, 90))
+        self.assertTrue(servidor.deve_enviar_nitido(10.0, 10.5, False, 75, 90))
+
+    def test_manda_uma_vez_so(self):
+        self.assertFalse(servidor.deve_enviar_nitido(10.0, 20.0, True, 75, 90))
+
+    def test_desligado_quando_nao_e_melhor(self):
+        self.assertFalse(servidor.deve_enviar_nitido(10.0, 20.0, False, 90, 90))
+        self.assertFalse(servidor.deve_enviar_nitido(None, 20.0, False, 75, 90))
+
+
+class TesteCapturadorParado(unittest.TestCase):
+    """Roda o Capturador de verdade com uma captura falsa que devolve sempre a mesma tela."""
+
+    def test_tela_parada_manda_um_quadro_nitido_e_depois_nada(self):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (320, 240), (30, 50, 70))
+        d = ImageDraw.Draw(img)
+        for i in range(0, 320, 8):
+            d.text((i, (i * 7) % 230), "texto", fill=(255, 255, 255))
+        b, g, r = img.split()
+        bgrx = Image.merge("RGBA", (b, g, r, Image.new("L", img.size, 255))).tobytes()
+
+        class Quadro:
+            size = img.size
+            raw = bytearray(bgrx)
+            bgra = bytes(bgrx)
+
+        class CapturaFalsa:
+            monitors = [None, {"left": 0, "top": 0, "width": 320, "height": 240}]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def grab(self, area):
+                return Quadro()
+
+        originais = (servidor.abrir_captura, servidor.posicao_cursor)
+        servidor.abrir_captura, servidor.posicao_cursor = CapturaFalsa, lambda: (-1, -1)
+        try:
+            cap = servidor.Capturador(1, 320, 75, 30, qualidade_parado=90)
+            cap.start()
+            n1, normal = cap.proximo(0, espera=2)        # primeiro quadro, qualidade normal
+            n2, nitido = cap.proximo(n1, espera=2)       # depois de ~0,5 s parada: versao nitida
+            n3, _ = cap.proximo(n2, espera=1.2)          # e depois disso, nada novo
+        finally:
+            servidor.abrir_captura, servidor.posicao_cursor = originais
+        self.assertEqual((n1, n2, n3), (1, 2, 2))
+        self.assertGreater(len(nitido), len(normal), "o quadro parado deve ter qualidade maior")
 
 
 class TesteChave(unittest.TestCase):

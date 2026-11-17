@@ -42,6 +42,7 @@ seguidos sem travar**, toque funcionando (clique, arrastar e botão direito) e t
 - **Toque:** uma camada fixa transparente recebe os toques (a imagem é trocada a cada quadro, e o iOS
   perde o gesto se o elemento tocado sai da página). Os toques vão em fila, um pedido por vez.
 - **Tela parada não é reenviada:** se os pixels e o cursor não mudaram, o servidor nem comprime o quadro.
+  Depois de meio segundo parada, manda uma vez a mesma tela em qualidade maior, para o texto ficar nítido.
 - **Segurança:** chave na URL (comparada em tempo constante), bloqueio após 5 erros, nunca a tela
   principal e toque conferido no Windows antes de cada clique (detalhes em [Segurança](#segurança)).
 
@@ -106,8 +107,9 @@ seguidos sem travar**, toque funcionando (clique, arrastar e botão direito) e t
 **Sempre que mudar a resolução do monitor virtual, reinicie o `iniciar.bat`.** O servidor guarda o
 tamanho da tela quando começa. Para ver os monitores e qual é o principal: `iniciar.bat --listar`.
 
-Com a tela parada, o servidor não reenvia a mesma imagem: manda de novo só a cada ~3 s, para manter a
-conexão. Por isso o `iPad recebendo` cai para perto de zero quando nada se mexe; é o esperado.
+Com a tela parada, o servidor não reenvia a mesma imagem: depois de meio segundo manda **uma versão mais
+nítida** (qualidade 90) e, a partir daí, só repete a cada ~3 s para manter a conexão. Por isso o
+`iPad recebendo` cai para perto de zero quando nada se mexe; é o esperado.
 
 ### Abrir sozinho com o Windows
 
@@ -116,8 +118,9 @@ conexão. Por isso o `iPad recebendo` cai para perto de zero quando nada se mexe
   **minimizado** na barra de tarefas; abra a janela se precisar ver o endereço com a chave.
 - **Desligar:** dois cliques em **`desligar-com-windows.bat`**. Ele apaga só esse atalho.
 
-Se o monitor virtual não estiver pronto quando o Windows abrir, o servidor avisa e não inicia (é a
-trava de segurança); nesse caso, feche a janela e rode o `iniciar.bat` de novo.
+Se o monitor virtual ainda não estiver pronto quando o Windows abrir, o servidor **espera até 30 s**
+por ele (`--esperar-monitor`). Se mesmo assim não aparecer, avisa e não inicia (é a trava de segurança);
+nesse caso, feche a janela e rode o `iniciar.bat` de novo.
 
 ### Toque
 
@@ -126,6 +129,7 @@ trava de segurança); nesse caso, feche a janela e rode o `iniciar.bat` de novo.
 | Tocar | Clique esquerdo |
 | Arrastar o dedo | Segura o clique e arrasta (janelas, barra do vídeo, seleção) |
 | Segurar parado ~0,6 s | Clique direito |
+| Arrastar com dois dedos | Rodinha do mouse (rolar páginas, para cima, para baixo e para os lados) |
 
 É o mouse de verdade do PC que se move. O ponteiro aparece no iPad como uma seta branca.
 
@@ -181,6 +185,8 @@ roteador** (redirecionamento de porta): o projeto não foi feito para a internet
 | `--permitir-principal` | desligado | Deixa usar o monitor principal (só para teste de espelhamento). |
 | `--porta` | 8080 | Porta do servidor. Se mudar, mude também a regra do firewall. |
 | `--chave` | a do `chave.txt` | Chave exigida na URL. |
+| `--qualidade-parado` | 90 | Qualidade do quadro nítido com a tela parada (igual ou menor que `--qualidade` desliga). |
+| `--esperar-monitor` | 30 | Segundos esperando o monitor virtual aparecer ao iniciar. |
 
 ## Testes
 
@@ -188,14 +194,16 @@ roteador** (redirecionamento de porta): o projeto não foi feito para a internet
 python -m unittest discover -s tests -v
 ```
 
-São 35 testes, só com a biblioteca padrão do Python, rodando a cada push no GitHub Actions (Windows):
+São 48 testes, só com a biblioteca padrão do Python, rodando a cada push no GitHub Actions (Windows):
 
 - **Chave:** página e ícone abrem sem chave; imagem, stream e toque dão 403 sem chave ou com chave errada.
 - **Limite de tentativas:** 5 erros bloqueiam o IP (429), mesmo com a chave certa depois, e bloqueado não clica.
 - **Toque:** sem chave nunca chega a clicar; ação desconhecida não clica; monitor que sumiu dá 409 e o mouse não se mexe.
 - **Teclado:** sem chave não digita; acentos chegam inteiros; teclas especiais; texto grande demais ou com caractere
   de controle dá 400; janela fora do monitor do iPad dá 409 e nada é digitado.
-- **Monitor:** sem monitor virtual o servidor não inicia; a tela principal só com `--permitir-principal`.
+- **Monitor:** sem monitor virtual o servidor espera e depois não inicia; a tela principal só com `--permitir-principal`.
+- **Rolagem:** dois dedos viram rodinha só com a chave e só no monitor do iPad; valores inválidos (`nan`, texto) dão 400.
+- **Tela parada:** o capturador roda com uma tela falsa e manda um quadro normal, depois um nítido maior, e mais nada.
 - **Chave salva:** 6 dígitos, reutilizada entre execuções, `--chave` substitui.
 - **ES5:** o `index.html` não usa `let`, `const`, arrow function, `fetch`, `Promise`, `class`, template string nem WebSocket.
 
@@ -207,8 +215,7 @@ Nenhum teste clica de verdade: a captura de tela e a função que mexe no mouse 
   mais o Wi-Fi antigo). Dá para usar e ver vídeo, mas não fica liso como um monitor de verdade.
 - **Nitidez:** a tela do iPad 3 é 2048 × 1536; o monitor virtual de 1024 × 768 é ampliado 2×.
 - **Vídeos 16:9** ficam com faixas pretas em cima e embaixo, porque o iPad é 4:3.
-- **Teclado simples:** letras, acentos, apagar, Enter e Tab. Sem atalhos (Ctrl, Alt), sem rolagem com dois dedos
-  e sem multitoque.
+- **Teclado simples:** letras, acentos, apagar e Enter. Sem atalhos (Ctrl, Alt) e sem pinça para zoom.
 - O deslocamento da imagem com o teclado aberto foi ajustado para o iPad 3 na horizontal.
 - **Só Windows** no PC (captura do cursor e cliques usam a API Win32).
 - **Segurança:** HTTP simples na rede local. Não exponha a porta para a internet.
