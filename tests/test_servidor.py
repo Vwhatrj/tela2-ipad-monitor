@@ -14,6 +14,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -65,8 +66,28 @@ class TesteHTTP(unittest.TestCase):
             return self.toque_aceito
         servidor.tocar = tocar_falso
 
+        # Teclado falso: so anota (nunca digita de verdade).
+        self.digitado = []
+        self.janela_no_ipad = True
+        self._digitar_original = servidor.digitar
+        self._tecla_original = servidor.apertar_tecla
+
+        def digitar_falso(texto, area, permitir_principal=False):
+            if self.janela_no_ipad:
+                self.digitado.append(("texto", texto))
+            return self.janela_no_ipad
+
+        def tecla_falsa(nome, area, permitir_principal=False):
+            if self.janela_no_ipad:
+                self.digitado.append(("tecla", nome))
+            return self.janela_no_ipad
+        servidor.digitar = digitar_falso
+        servidor.apertar_tecla = tecla_falsa
+
     def tearDown(self):
         servidor.tocar = self._tocar_original
+        servidor.digitar = self._digitar_original
+        servidor.apertar_tecla = self._tecla_original
 
     def get(self, caminho):
         """Devolve (status, corpo, content-type)."""
@@ -144,6 +165,41 @@ class TesteHTTP(unittest.TestCase):
         self.assertEqual(self.get("/toque?chave={}&a=clique&x=0.5&y=0.5".format(CHAVE))[0], 429)
         self.assertEqual(self.toques, [], "bloqueado nao pode clicar")
 
+    # Teclado
+    def test_tecla_sem_chave_nao_digita(self):
+        self.assertEqual(self.get("/tecla?t=oi")[0], 403)
+        self.assertEqual(self.get("/tecla?chave=000000&k=enter")[0], 403)
+        self.assertEqual(self.digitado, [])
+
+    def test_texto_com_acentos_e_digitado(self):
+        texto = urllib.parse.quote("Olá, ação! 1+1")
+        self.assertEqual(self.get("/tecla?chave={}&t={}".format(CHAVE, texto))[0], 204)
+        self.assertEqual(self.digitado, [("texto", "Olá, ação! 1+1")])
+
+    def test_teclas_especiais(self):
+        for nome in ("enter", "apagar", "tab", "esc", "esquerda"):
+            self.assertEqual(self.get("/tecla?chave={}&k={}".format(CHAVE, nome))[0], 204)
+        self.assertEqual([n for _, n in self.digitado], ["enter", "apagar", "tab", "esc", "esquerda"])
+
+    def test_tecla_desconhecida_ou_vazia_da_400(self):
+        self.assertEqual(self.get("/tecla?chave={}&k=desligar".format(CHAVE))[0], 400)
+        self.assertEqual(self.get("/tecla?chave={}".format(CHAVE))[0], 400)
+        self.assertEqual(self.digitado, [])
+
+    def test_texto_com_caractere_de_controle_da_400(self):
+        self.assertEqual(self.get("/tecla?chave={}&t=a%0Db".format(CHAVE))[0], 400)
+        self.assertEqual(self.digitado, [])
+
+    def test_texto_grande_demais_da_400(self):
+        self.assertEqual(self.get("/tecla?chave={}&t={}".format(CHAVE, "a" * 201))[0], 400)
+        self.assertEqual(self.get("/tecla?chave={}&t={}".format(CHAVE, "a" * 200))[0], 204)
+
+    def test_janela_fora_do_ipad_da_409_e_nao_digita(self):
+        self.janela_no_ipad = False
+        self.assertEqual(self.get("/tecla?chave={}&t=segredo".format(CHAVE))[0], 409)
+        self.assertEqual(self.get("/tecla?chave={}&k=enter".format(CHAVE))[0], 409)
+        self.assertEqual(self.digitado, [])
+
     def test_rota_desconhecida_da_404(self):
         self.assertEqual(self.get("/nada?chave=" + CHAVE)[0], 404)
 
@@ -203,6 +259,16 @@ class TesteTravaDoToque(unittest.TestCase):
 
     def test_ponto_fora_de_qualquer_monitor_e_recusado(self):
         self.assertFalse(servidor.ponto_no_monitor(900010, 900010, self.INEXISTENTE, False))
+
+    def test_digitar_em_monitor_que_sumiu_e_recusado(self):
+        # Nenhuma janela esta num monitor inexistente: a trava recusa antes de digitar.
+        self.assertFalse(servidor.janela_ativa_no_monitor(self.INEXISTENTE))
+        self.assertFalse(servidor.digitar("nao-deve-aparecer", self.INEXISTENTE))
+        self.assertFalse(servidor.apertar_tecla("enter", self.INEXISTENTE))
+
+    def test_estrutura_do_sendinput(self):
+        # O Windows recusa o SendInput se o tamanho da estrutura estiver errado.
+        self.assertEqual(ctypes.sizeof(servidor.INPUT), 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28)
 
     def test_tocar_em_monitor_que_sumiu_nao_mexe_no_mouse(self):
         antes = self.posicao()

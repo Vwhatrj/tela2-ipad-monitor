@@ -35,6 +35,8 @@ except ImportError:
     sys.exit(1)
 
 PASTA = Path(__file__).resolve().parent
+# mss 10+ usa mss.MSS (mss.mss so gera aviso); versoes antigas so tem mss.mss.
+abrir_captura = getattr(mss, "MSS", None) or mss.mss
 LIMITE = "quadro"
 
 # Seta do mouse (o mss captura a tela sem o ponteiro). Pontas em pixels, a partir da ponta da seta.
@@ -80,6 +82,11 @@ def ponto_no_monitor(px, py, area, permitir_principal):
     """Confere, no proprio Windows, que (px, py) cai no monitor capturado e que ele
     nao e o principal. Se o monitor virtual sumir, o toque e recusado em vez de cair na tela principal."""
     hmon = _user32.MonitorFromPoint(ctypes.wintypes.POINT(px, py), 0)  # 0 = MONITOR_DEFAULTTONULL
+    return monitor_confere(hmon, area, permitir_principal)
+
+
+def monitor_confere(hmon, area, permitir_principal):
+    """True se o monitor `hmon` e exatamente o capturado (e nao o principal, salvo permissao)."""
     if not hmon:
         return False
     info = MONITORINFO()
@@ -104,6 +111,79 @@ def tocar(acao, x, y, area, permitir_principal=False):
     _user32.SetCursorPos(px, py)
     for botao in MOUSE.get(acao, ()):
         _user32.mouse_event(botao, 0, 0, 0, 0)
+    return True
+
+
+# ---- Teclado (SendInput) ----
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.wintypes.WORD), ("wScan", ctypes.wintypes.WORD),
+                ("dwFlags", ctypes.wintypes.DWORD), ("time", ctypes.wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.wintypes.LONG), ("dy", ctypes.wintypes.LONG),
+                ("mouseData", ctypes.wintypes.DWORD), ("dwFlags", ctypes.wintypes.DWORD),
+                ("time", ctypes.wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _ENTRADA(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.wintypes.DWORD), ("u", _ENTRADA)]
+
+
+_user32.SendInput.argtypes = [ctypes.wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+_user32.GetForegroundWindow.restype = ctypes.c_void_p
+_user32.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.wintypes.DWORD]
+_user32.MonitorFromWindow.restype = ctypes.c_void_p
+
+TECLADO, UNICODE, SOLTAR = 1, 0x0004, 0x0002
+MAX_TEXTO = 200  # caracteres por pedido
+TECLAS = {  # nome -> codigo virtual do Windows
+    "enter": 0x0D, "apagar": 0x08, "tab": 0x09, "esc": 0x1B, "delete": 0x2E,
+    "esquerda": 0x25, "cima": 0x26, "direita": 0x27, "baixo": 0x28,
+}
+
+
+def janela_ativa_no_monitor(area, permitir_principal=False):
+    """Confere que a janela que vai receber as teclas esta no monitor capturado.
+    Assim o iPad nunca digita numa janela da tela principal."""
+    hwnd = _user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+    return monitor_confere(_user32.MonitorFromWindow(hwnd, 0), area, permitir_principal)
+
+
+def _enviar_entradas(entradas):
+    n = len(entradas)
+    if n:
+        _user32.SendInput(n, (INPUT * n)(*entradas), ctypes.sizeof(INPUT))
+
+
+def digitar(texto, area, permitir_principal=False):
+    """Digita `texto` (com acentos) na janela ativa, se ela estiver no monitor capturado."""
+    if not janela_ativa_no_monitor(area, permitir_principal):
+        return False
+    entradas = []
+    codigos = texto.encode("utf-16-le")
+    for i in range(0, len(codigos), 2):
+        unidade = int.from_bytes(codigos[i:i + 2], "little")
+        for flags in (UNICODE, UNICODE | SOLTAR):
+            entradas.append(INPUT(type=TECLADO, u=_ENTRADA(ki=KEYBDINPUT(0, unidade, flags, 0, 0))))
+    _enviar_entradas(entradas)
+    return True
+
+
+def apertar_tecla(nome, area, permitir_principal=False):
+    """Aperta uma tecla especial (Enter, apagar, setas...) na janela ativa do monitor capturado."""
+    if not janela_ativa_no_monitor(area, permitir_principal):
+        return False
+    vk = TECLAS[nome]
+    _enviar_entradas([INPUT(type=TECLADO, u=_ENTRADA(ki=KEYBDINPUT(vk, 0, f, 0, 0))) for f in (0, SOLTAR)])
     return True
 
 
@@ -151,7 +231,7 @@ class Capturador(threading.Thread):
         self.area = None  # posicao do monitor na area de trabalho (usada pelo toque)
 
     def run(self):
-        with mss.mss() as sct:
+        with abrir_captura() as sct:
             area = sct.monitors[self.monitor]
             self.area = area
             anterior = None  # (pixels, cursor) do ultimo quadro enviado
@@ -244,6 +324,8 @@ class Pedido(BaseHTTPRequestHandler):
             self.bloqueio.acertou(ip)
             if caminho == "/toque":
                 self.receber_toque(q)
+            elif caminho == "/tecla":
+                self.receber_tecla(q)
             elif caminho == "/frame.jpg":
                 self.enviar_quadro()
             elif caminho == "/stream.mjpg":
@@ -280,6 +362,30 @@ class Pedido(BaseHTTPRequestHandler):
             if not tocar(acao, x, y, area, self.permitir_principal):
                 self.send_error(409, "O monitor capturado nao esta mais disponivel")
                 return
+        self.responder_vazio()
+
+    def receber_tecla(self, q):
+        """/tecla?t=texto (digita, com acentos) ou /tecla?k=enter|apagar|tab|esc|delete|setas.
+        So digita se a janela ativa estiver no monitor capturado (409 se nao estiver)."""
+        area = self.capturador.area
+        texto = q.get("t", [""])[0]
+        nome = q.get("k", [""])[0]
+        if texto:
+            if len(texto) > MAX_TEXTO or any(ord(c) < 32 or ord(c) == 127 for c in texto):
+                self.send_error(400, "Texto invalido")
+                return
+            feito = bool(area) and digitar(texto, area, self.permitir_principal)
+        elif nome in TECLAS:
+            feito = bool(area) and apertar_tecla(nome, area, self.permitir_principal)
+        else:
+            self.send_error(400, "Informe t= (texto) ou k= (tecla)")
+            return
+        if not feito:
+            self.send_error(409, "A janela ativa nao esta no monitor do iPad")
+            return
+        self.responder_vazio()
+
+    def responder_vazio(self):
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-cache, no-store")
@@ -371,7 +477,7 @@ def principal(m):
 
 
 def listar_monitores():
-    with mss.mss() as sct:
+    with abrir_captura() as sct:
         monitores = sct.monitors[1:]
     for i, m in enumerate(monitores, start=1):
         if principal(m):

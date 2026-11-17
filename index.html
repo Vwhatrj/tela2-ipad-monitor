@@ -16,6 +16,14 @@
      o toque se perde se o elemento tocado sai da pagina no meio do gesto. */
   #toque { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 1;
            -webkit-tap-highlight-color: rgba(0, 0, 0, 0); }
+  /* Botao do teclado e o campo escondido que faz o teclado do iOS aparecer. */
+  #btn-teclado { position: fixed; right: 12px; bottom: 12px; z-index: 3; margin: 0;
+                 padding: 10px 14px; border: 0; border-radius: 0; background: rgba(20, 20, 22, 0.75);
+                 color: #ffb020; font: 600 16px -apple-system, Helvetica, Arial, sans-serif;
+                 -webkit-appearance: none; -webkit-tap-highlight-color: rgba(0, 0, 0, 0); }
+  #btn-teclado.aberto { background: #ffb020; color: #1a1204; top: 12px; bottom: auto; }
+  #campo { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0;
+           border: 0; padding: 0; font-size: 16px; z-index: 0; }
   #aviso { position: fixed; left: 0; right: 0; bottom: 0; display: none; z-index: 2;
            padding: 12px 16px; background: rgba(0, 0, 0, 0.8); color: #e6e6e6;
            font: 15px -apple-system, Helvetica, Arial, sans-serif; }
@@ -24,6 +32,8 @@
 <body>
 <img id="tela" alt="">
 <div id="toque"></div>
+<input id="campo" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true">
+<button id="btn-teclado" type="button">Teclado</button>
 <div id="aviso"></div>
 <script>
 /* JavaScript antigo (ES5) de proposito: o Safari do iOS 9 nao entende sintaxe moderna. */
@@ -32,6 +42,8 @@
   var aviso = document.getElementById('aviso');
   var camada = document.getElementById('toque');
   var falhas = 0;
+  var tecladoAberto = false;
+  var ultimoToqueY = 0.5; /* posicao vertical (0 a 1) do ultimo toque na imagem */
   /* Chave de acesso: vem da URL (?chave=...) e vai em todos os pedidos ao PC. */
   var achou = /[?&]chave=([^&#]*)/.exec(location.search);
   var chave = achou ? achou[1] : '';
@@ -68,16 +80,38 @@
 
   /* Encaixa a imagem inteira na area visivel, sem cortar e sem distorcer
      (o Safari do iOS 9 nao tem object-fit). */
+  /* Altura da janela sem o teclado. O iOS 9 encolhe a janela quando o teclado abre;
+     a imagem continua no tamanho de antes (senao ela diminui) e so e deslocada. */
+  var alturaSemTeclado = window.innerHeight;
+
   function encaixar(img) {
     var w = window.innerWidth, h = window.innerHeight;
     var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
     if (!iw || !ih || !w || !h) { return; }
-    var escala = Math.min(w / iw, h / ih);
+    if (!tecladoAberto) { alturaSemTeclado = h; }
+    var hCheia = tecladoAberto ? alturaSemTeclado : h;
+    var escala = Math.min(w / iw, hCheia / ih);
     var lw = Math.floor(iw * escala), lh = Math.floor(ih * escala);
     img.style.width = lw + 'px';
     img.style.height = lh + 'px';
     img.style.marginLeft = Math.floor((w - lw) / 2) + 'px';
-    img.style.marginTop = Math.floor((h - lh) / 2) + 'px';
+    img.style.marginTop = Math.floor((hCheia - lh) / 2) + 'px';
+    if (tecladoAberto) {
+      /* O teclado cobre a parte de baixo. Desloca a imagem para que o ponto do ultimo toque
+         (a caixa de texto) fique no meio da area que sobra visivel acima do teclado. */
+      var visivel = areaVisivel(h, w);
+      var topo = Math.round(visivel / 2 - ultimoToqueY * lh);
+      topo = Math.max(Math.min(topo, 0), visivel - lh);
+      img.style.marginTop = topo + 'px';
+    }
+  }
+
+  /* Altura que sobra acima do teclado. Se o iOS ja encolheu a janela, essa e a medida real;
+     se nao encolheu, usa uma estimativa do teclado do iPad (medida no iPad 3). */
+  function areaVisivel(h, w) {
+    if (h < alturaSemTeclado - 100) { return h; }
+    var paisagem = w > alturaSemTeclado;
+    return Math.round(alturaSemTeclado * (paisagem ? 0.46 : 0.68));
   }
   window.onresize = function () { encaixar(tela); };
   window.onorientationchange = window.onresize;
@@ -96,18 +130,123 @@
     proximoToque();
   }
 
+  /* Teclas vao na mesma fila dos toques, para chegarem ao PC na ordem certa.
+     Texto seguido vira um pedido so (ate 200 caracteres). */
+  function enviarTexto(texto) {
+    var ultimo = fila[fila.length - 1];
+    if (ultimo && ultimo.texto !== undefined && (ultimo.texto + texto).length <= 200) {
+      ultimo.texto += texto;
+    } else {
+      fila.push({ texto: texto });
+    }
+    proximoToque();
+  }
+
+  function enviarTecla(nome) {
+    fila.push({ tecla: nome });
+    proximoToque();
+  }
+
+  var timerAvisoTecla = null;
+  function avisarTecla() {
+    mostrarAviso('Para digitar, toque antes numa janela que esteja na tela do iPad.');
+    clearTimeout(timerAvisoTecla);
+    timerAvisoTecla = setTimeout(function () { mostrarAviso(''); }, 3000);
+  }
+
   function proximoToque() {
     if (enviando || !fila.length) { return; }
     var t = fila.shift();
+    var url;
+    if (t.texto !== undefined) {
+      url = '/tecla?chave=' + chave + '&t=' + encodeURIComponent(t.texto);
+    } else if (t.tecla) {
+      url = '/tecla?chave=' + chave + '&k=' + t.tecla;
+    } else {
+      url = '/toque?chave=' + chave + '&a=' + t.a + '&x=' + t.x.toFixed(4) + '&y=' + t.y.toFixed(4);
+    }
     var xhr = new XMLHttpRequest();
     enviando = true;
     xhr.onreadystatechange = function () {
-      if (xhr.readyState === 4) { enviando = false; proximoToque(); }
+      if (xhr.readyState === 4) {
+        enviando = false;
+        if (xhr.status === 409 && (t.texto !== undefined || t.tecla)) { avisarTecla(); }
+        proximoToque();
+      }
     };
-    xhr.open('GET', '/toque?chave=' + chave + '&a=' + t.a + '&x=' + t.x.toFixed(4) + '&y=' + t.y.toFixed(4) +
-             '&t=' + new Date().getTime(), true);
+    xhr.open('GET', url + '&n=' + new Date().getTime(), true);
     xhr.send();
   }
+
+  /* Teclado: o botao foca um campo escondido, o que abre o teclado do iOS.
+     O campo guarda sempre dois espacos ("sentinela"): se o valor encurta, foi o apagar;
+     se cresce, o que passou da sentinela e texto novo. Depois volta a ter so a sentinela. */
+  var campo = document.getElementById('campo');
+  var botaoTeclado = document.getElementById('btn-teclado');
+  var SENTINELA = '  ';
+
+  function reiniciarCampo() {
+    campo.value = SENTINELA;
+    try { campo.setSelectionRange(SENTINELA.length, SENTINELA.length); } catch (e) {}
+  }
+
+  function alternarTeclado(e) {
+    if (e) { e.preventDefault(); }
+    if (tecladoAberto) {
+      campo.blur();
+    } else {
+      reiniciarCampo();
+      campo.focus();
+    }
+  }
+  botaoTeclado.addEventListener('touchend', alternarTeclado, false);
+  botaoTeclado.addEventListener('click', alternarTeclado, false);
+
+  /* O Safari rola a pagina para mostrar o campo focado; isso empurrava a imagem para fora. */
+  function voltarAoTopo() {
+    if (window.pageYOffset || document.body.scrollTop) { window.scrollTo(0, 0); }
+    encaixar(tela);
+  }
+  window.addEventListener('scroll', function () {
+    if (window.pageYOffset || document.body.scrollTop) { window.scrollTo(0, 0); }
+  }, false);
+
+  campo.addEventListener('focus', function () {
+    tecladoAberto = true;
+    botaoTeclado.className = 'aberto';
+    voltarAoTopo();
+    setTimeout(voltarAoTopo, 100);
+    setTimeout(voltarAoTopo, 400);
+  }, false);
+  campo.addEventListener('blur', function () {
+    tecladoAberto = false;
+    botaoTeclado.className = '';
+    voltarAoTopo();
+    setTimeout(voltarAoTopo, 300);
+  }, false);
+
+  campo.addEventListener('keydown', function (e) {
+    var c = e.keyCode;
+    if (c === 13) { e.preventDefault(); enviarTecla('enter'); }
+    else if (c === 9) { e.preventDefault(); enviarTecla('tab'); }
+    else if (c === 27) { e.preventDefault(); enviarTecla('esc'); }
+    else if (c >= 37 && c <= 40) {
+      e.preventDefault();
+      enviarTecla(['esquerda', 'cima', 'direita', 'baixo'][c - 37]);
+    }
+  }, false);
+
+  campo.addEventListener('input', function () {
+    var v = campo.value, i;
+    if (v.length < SENTINELA.length) {
+      for (i = v.length; i < SENTINELA.length; i++) { enviarTecla('apagar'); }
+    } else if (v.indexOf(SENTINELA) === 0) {
+      if (v.length > SENTINELA.length) { enviarTexto(v.slice(SENTINELA.length)); }
+    } else if (v.replace(/^\s+/, '')) {
+      enviarTexto(v.replace(/^\s+/, ''));
+    }
+    reiniciarCampo();
+  }, false);
 
   function posicao(e) {
     var d = (e.changedTouches && e.changedTouches.length ? e.changedTouches : e.touches)[0];
@@ -122,6 +261,7 @@
     e.preventDefault();
     if (e.touches.length > 1) { return; }
     inicio = posicao(e);
+    ultimoToqueY = Math.min(Math.max(inicio.y, 0), 1);
     arrastando = false;
     segurou = false;
     enviarToque('mover', inicio.x, inicio.y);

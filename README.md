@@ -16,7 +16,7 @@ Nada é instalado no iPad.
 -->
 
 **Resultado testado:** monitor estendido em 1024 × 768, média de **~17 quadros/s**, **30 minutos
-seguidos sem travar**, toque funcionando (clique, arrastar e botão direito).
+seguidos sem travar**, toque funcionando (clique, arrastar e botão direito) e teclado do iPad digitando no PC.
 
 ## Como funciona
 
@@ -129,9 +129,21 @@ trava de segurança); nesse caso, feche a janela e rode o `iniciar.bat` de novo.
 
 É o mouse de verdade do PC que se move. O ponteiro aparece no iPad como uma seta branca.
 
+### Teclado
+
+1. Toque numa janela que esteja no monitor virtual (uma caixa de texto, por exemplo).
+2. Toque em **"Teclado"**, no canto inferior direito: o teclado do iPad abre e o botão sobe para o
+   canto superior.
+3. Digite. Letras, acentos, apagar e Enter chegam ao PC (Tab e setas também, num teclado externo). A imagem é deslocada para mostrar, acima do
+   teclado, a região onde você tocou por último.
+4. Toque em "Teclado" de novo para fechar.
+
+O servidor só digita se a **janela ativa estiver no monitor do iPad**; se não estiver, o iPad avisa
+"toque antes numa janela que esteja na tela do iPad". Assim o iPad nunca digita na tela principal.
+
 ### Segurança
 
-Como o toque controla o mouse do PC, há quatro proteções:
+Como o toque controla o mouse e o teclado do PC, há quatro proteções:
 
 - **Chave na URL:** imagem e toque só respondem com a **chave** certa (`?chave=...`); sem ela, o
   servidor responde 403 e não processa clique nenhum. A página abre sem chave, mas avisa em português
@@ -140,7 +152,8 @@ Como o toque controla o mouse do PC, há quatro proteções:
   por 5 minutos (erro 429), mesmo que acerte a chave depois. A janela do servidor avisa quando bloqueia.
 - **Nunca a tela principal:** o servidor só transmite um monitor secundário. Para espelhar a principal
   de propósito (teste), use `--monitor 1 --permitir-principal`.
-- **Toque preso ao monitor virtual:** antes de cada clique, o servidor confere no Windows que o ponto
+- **Toque e teclado presos ao monitor virtual:** antes de cada tecla, o servidor confere que a janela
+  ativa está no monitor do iPad. Antes de cada clique, o servidor confere no Windows que o ponto
   cai no monitor transmitido. Se o monitor sumir com o servidor aberto, o toque é recusado (erro 409)
   em vez de cair na tela principal.
 
@@ -175,11 +188,13 @@ roteador** (redirecionamento de porta): o projeto não foi feito para a internet
 python -m unittest discover -s tests -v
 ```
 
-São 26 testes, só com a biblioteca padrão do Python, rodando a cada push no GitHub Actions (Windows):
+São 35 testes, só com a biblioteca padrão do Python, rodando a cada push no GitHub Actions (Windows):
 
 - **Chave:** página e ícone abrem sem chave; imagem, stream e toque dão 403 sem chave ou com chave errada.
 - **Limite de tentativas:** 5 erros bloqueiam o IP (429), mesmo com a chave certa depois, e bloqueado não clica.
 - **Toque:** sem chave nunca chega a clicar; ação desconhecida não clica; monitor que sumiu dá 409 e o mouse não se mexe.
+- **Teclado:** sem chave não digita; acentos chegam inteiros; teclas especiais; texto grande demais ou com caractere
+  de controle dá 400; janela fora do monitor do iPad dá 409 e nada é digitado.
 - **Monitor:** sem monitor virtual o servidor não inicia; a tela principal só com `--permitir-principal`.
 - **Chave salva:** 6 dígitos, reutilizada entre execuções, `--chave` substitui.
 - **ES5:** o `index.html` não usa `let`, `const`, arrow function, `fetch`, `Promise`, `class`, template string nem WebSocket.
@@ -192,7 +207,9 @@ Nenhum teste clica de verdade: a captura de tela e a função que mexe no mouse 
   mais o Wi-Fi antigo). Dá para usar e ver vídeo, mas não fica liso como um monitor de verdade.
 - **Nitidez:** a tela do iPad 3 é 2048 × 1536; o monitor virtual de 1024 × 768 é ampliado 2×.
 - **Vídeos 16:9** ficam com faixas pretas em cima e embaixo, porque o iPad é 4:3.
-- **Sem teclado** pelo iPad, sem rolagem com dois dedos e sem multitoque.
+- **Teclado simples:** letras, acentos, apagar, Enter e Tab. Sem atalhos (Ctrl, Alt), sem rolagem com dois dedos
+  e sem multitoque.
+- O deslocamento da imagem com o teclado aberto foi ajustado para o iPad 3 na horizontal.
 - **Só Windows** no PC (captura do cursor e cliques usam a API Win32).
 - **Segurança:** HTTP simples na rede local. Não exponha a porta para a internet.
 
