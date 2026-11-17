@@ -1,5 +1,7 @@
 # Tela 2 — um iPad 3 como segundo monitor do Windows
 
+[![Testes](https://github.com/Vwhatrj/tela2-ipad-monitor/actions/workflows/testes.yml/badge.svg)](https://github.com/Vwhatrj/tela2-ipad-monitor/actions/workflows/testes.yml)
+
 O iPad 3 (2012) tem processador de 32 bits e está preso no iOS 9.3.6. Apps de segundo monitor
 como o Spacedesk não instalam (são só 64 bits), e a versão pelo navegador falha porque o Safari
 do iOS 9 não aguenta o WebSocket e o JavaScript moderno que ela usa.
@@ -156,6 +158,23 @@ roteador** (redirecionamento de porta): o projeto não foi feito para a internet
 | `--permitir-principal` | desligado | Deixa usar o monitor principal (só para teste de espelhamento). |
 | `--porta` | 8080 | Porta do servidor. Se mudar, mude também a regra do firewall. |
 | `--chave` | a do `chave.txt` | Chave exigida na URL. |
+
+## Testes
+
+```
+python -m unittest discover -s tests -v
+```
+
+São 26 testes, só com a biblioteca padrão do Python, rodando a cada push no GitHub Actions (Windows):
+
+- **Chave:** página e ícone abrem sem chave; imagem, stream e toque dão 403 sem chave ou com chave errada.
+- **Limite de tentativas:** 5 erros bloqueiam o IP (429), mesmo com a chave certa depois, e bloqueado não clica.
+- **Toque:** sem chave nunca chega a clicar; ação desconhecida não clica; monitor que sumiu dá 409 e o mouse não se mexe.
+- **Monitor:** sem monitor virtual o servidor não inicia; a tela principal só com `--permitir-principal`.
+- **Chave salva:** 6 dígitos, reutilizada entre execuções, `--chave` substitui.
+- **ES5:** o `index.html` não usa `let`, `const`, arrow function, `fetch`, `Promise`, `class`, template string nem WebSocket.
+
+Nenhum teste clica de verdade: a captura de tela e a função que mexe no mouse são trocadas por versões falsas.
 
 ## Limitações
 
