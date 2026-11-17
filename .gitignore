@@ -1,0 +1,12 @@
+# Chave de acesso local (nunca publicar)
+chave.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Display Driver (projeto de terceiros: baixe do repositório oficial)
+VirtualDisplayDriver/
+VirtualDisplayDriver-*/
+vdd_settings.xml
+*.zip

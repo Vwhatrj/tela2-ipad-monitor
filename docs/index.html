@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tela 2 — um iPad 3 como segundo monitor</title>
+<meta name="description" content="Servidor em Python que transforma um iPad 3 com iOS 9 em monitor estendido do Windows, com HTTP simples, JPEG e JavaScript ES5.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --chao: #101012;
+    --chao-2: #18181b;
+    --chao-3: #222226;
+    --tinta: #f2f0eb;
+    --tinta-2: #b9b6ae;
+    --ambar: #ffb020;
+    --ambar-tinta: #1a1204;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --margem: clamp(16px, 4vw, 48px);
+    --largura: 1200px;
+    --entre-secoes: clamp(88px, 12vw, 180px);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--chao); color: var(--tinta);
+    font: 400 18px/1.55 var(--sans);
+  }
+  a { color: inherit; }
+  a:focus-visible, .botao:focus-visible { outline: 3px solid var(--ambar); outline-offset: 3px; }
+  ::selection { background: var(--ambar); color: var(--ambar-tinta); }
+  .caixa { max-width: var(--largura); margin: 0 auto; padding: 0 var(--margem); }
+
+  /* Barra */
+  .barra { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+           padding-top: 20px; padding-bottom: 20px; }
+  .marca { font-weight: 700; font-size: 20px; text-decoration: none; letter-spacing: -0.01em; }
+  .barra nav { display: flex; gap: 24px; align-items: center; font-size: 16px; }
+  .barra nav a:not(.botao) { text-decoration: none; color: var(--tinta-2); }
+  .barra nav a:not(.botao):hover { color: var(--tinta); }
+  .so-largo { display: none; }
+
+  /* Botao */
+  .botao { display: inline-block; background: var(--ambar); color: var(--ambar-tinta);
+           font-weight: 600; font-size: 17px; text-decoration: none; padding: 14px 24px;
+           border-radius: 0; transition: transform .15s ease, background-color .15s ease; }
+  .botao:hover { background: #ffc24d; }
+  .botao:active { transform: translateY(1px); }
+  .barra .botao { padding: 10px 16px; font-size: 15px; }
+
+  /* Abertura */
+  .abertura { padding-top: clamp(32px, 6vw, 72px); padding-bottom: var(--entre-secoes);
+              display: grid; gap: clamp(40px, 6vw, 72px); align-items: center; }
+  h1 { font-size: clamp(36px, 8.2vw, 112px); line-height: 0.98; letter-spacing: -0.035em;
+       font-weight: 700; margin: 0; }
+  .apoio { font-size: clamp(19px, 2vw, 23px); line-height: 1.45; max-width: 34ch; margin: 0 0 36px; }
+
+  /* iPad 3 desenhado */
+  .ipad { background: #2b2b2f; padding: 6.5% 4.6%; border-radius: 22px; position: relative;
+          width: 100%; max-width: 620px; justify-self: center; }
+  .ipad::after { content: ""; position: absolute; right: 1.6%; top: 50%; width: 3.4%; aspect-ratio: 1;
+                 border-radius: 50%; background: #1d1d20; transform: translateY(-50%); }
+  .tela { aspect-ratio: 4 / 3; background: #0b0b0c; position: relative; overflow: hidden; }
+  .tela img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .desk { position: absolute; inset: 0; background: #1c3446; }
+  .desk .janela { position: absolute; left: 9%; top: 12%; width: 62%; height: 58%; background: #e9e6df; }
+  .desk .janela::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 11%; background: #c9c5bb; }
+  .desk .janela i { position: absolute; left: 7%; height: 6%; background: #b3aea3; }
+  .desk .outra { position: absolute; right: 7%; bottom: 14%; width: 38%; height: 40%; background: #2f5470; }
+  .desk .outra::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 14%; background: #3f6a8a; }
+  .desk .barra-tarefas { position: absolute; left: 0; right: 0; bottom: 0; height: 7%; background: #0e1a24; }
+  .desk .seta { position: absolute; width: 3.2%; left: 58%; top: 52%; }
+  .contador { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px;
+              display: flex; justify-content: space-between; gap: 12px;
+              background: rgba(10, 10, 12, 0.78); color: var(--tinta);
+              font: 500 13px/1.3 var(--mono); }
+  .contador b { color: var(--ambar); font-weight: 500; }
+
+  /* Secoes */
+  section { padding: var(--entre-secoes) 0; }
+  .tom-2 { background: var(--chao-2); }
+  h2 { font-size: clamp(32px, 4.6vw, 60px); line-height: 1.02; letter-spacing: -0.03em;
+       font-weight: 700; margin: 0 0 32px; max-width: 18ch; }
+  h3 { font-size: 22px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { margin: 0 0 18px; max-width: 62ch; }
+  .duas { display: grid; gap: 40px; }
+
+  /* Problema: tres barreiras em lista tipografica */
+  .barreiras { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .barreiras li { background: var(--chao-3); padding: 24px clamp(20px, 3vw, 32px);
+                  display: grid; gap: 6px; }
+  .barreiras strong { font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -0.02em; line-height: 1.15; }
+  .barreiras span { color: var(--tinta-2); font-size: 17px; }
+
+  /* Como funciona */
+  pre { margin: 0; background: #0a0a0b; color: var(--tinta); padding: clamp(18px, 3vw, 32px);
+        overflow-x: auto; font: 400 clamp(12px, 1.35vw, 15px)/1.5 var(--mono); }
+  pre .a { color: var(--ambar); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--chao-3); padding: 2px 6px; }
+  .decisoes { list-style: none; padding: 0; margin: 48px 0 0; display: grid; gap: 32px; }
+  .decisoes p { color: var(--tinta); }
+
+  /* Resultados */
+  .numeros { display: grid; gap: 40px 48px; margin-top: 16px; }
+  .numero strong { display: block; font-size: clamp(64px, 11vw, 150px); line-height: 0.9;
+                   letter-spacing: -0.045em; font-weight: 700; font-variant-numeric: tabular-nums;
+                   white-space: nowrap; }
+  .numero strong .u { font-size: 0.32em; letter-spacing: -0.01em; margin-left: 6px; }
+  .numero:first-child strong { color: var(--ambar); }
+  .numero span { display: block; margin-top: 12px; font-size: 18px; max-width: 30ch; }
+  .nota { color: var(--tinta-2); font-size: 16px; margin-top: 48px; }
+
+  /* Limitacoes */
+  .limites { margin: 0; padding-left: 1.1em; display: grid; gap: 14px; max-width: 70ch; }
+
+  /* Uso */
+  .comandos { display: grid; gap: 16px; margin-top: 8px; }
+
+  /* Rodape */
+  footer { background: var(--chao-2); padding: var(--entre-secoes) 0 40px; }
+  .nome-grande { font-size: clamp(72px, 19vw, 260px); line-height: 0.85; letter-spacing: -0.05em;
+                 font-weight: 700; margin: 0 0 48px; }
+  .rodape-fim { display: grid; gap: 20px; color: var(--tinta-2); font-size: 16px; }
+  .rodape-fim a { color: var(--tinta); }
+
+  /* Entrada (so com JS e sem preferencia por menos movimento) */
+  .js .surge { opacity: 0; transform: translateY(24px);
+               transition: opacity .6s ease, transform .6s cubic-bezier(.2, .7, .2, 1); }
+  .js .surge.visto { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .js .surge { opacity: 1; transform: none; transition: none; }
+    .botao { transition: none; }
+  }
+
+  @media (min-width: 760px) {
+    .so-largo { display: inline; }
+    .duas { grid-template-columns: 5fr 7fr; gap: 64px; align-items: start; }
+    .numeros { grid-template-columns: 1fr 1fr; }
+    .decisoes { grid-template-columns: 1fr 1fr; gap: 40px 56px; }
+    .rodape-fim { grid-template-columns: 2fr 1fr; align-items: end; }
+  }
+  @media (min-width: 1040px) {
+    .abertura { grid-template-columns: 5fr 6fr; row-gap: 48px; }
+    .abertura h1 { grid-column: 1 / -1; }
+    .ipad { justify-self: end; }
+  }
+</style>
+</head>
+<body>
+
+<header class="caixa barra">
+  <a class="marca" href="#">Tela 2</a>
+  <nav aria-label="Seções">
+    <a class="so-largo" href="#problema">Problema</a>
+    <a class="so-largo" href="#como">Como funciona</a>
+    <a class="so-largo" href="#resultados">Resultados</a>
+    <a class="botao" data-repo href="https://github.com/">Código</a>
+  </nav>
+</header>
+
+<main>
+  <div class="caixa abertura">
+    <h1>Um iPad de 2012 virou monitor</h1>
+    <div>
+      <p class="apoio">O iPad 3 está preso no iOS 9 e nenhum app de segundo monitor instala nele.
+        O Tela 2 resolve com HTTP simples, JPEG e JavaScript da época.</p>
+      <a class="botao" data-repo href="https://github.com/">Ver o código no GitHub</a>
+    </div>
+
+    <figure class="ipad" style="margin:0" aria-label="Desenho de um iPad 3 mostrando a área de trabalho do Windows">
+      <div class="tela">
+        <div class="desk" aria-hidden="true">
+          <div class="janela"><i style="top:22%;width:70%"></i><i style="top:34%;width:54%"></i><i style="top:46%;width:62%"></i><i style="top:58%;width:40%"></i></div>
+          <div class="outra"></div>
+          <div class="barra-tarefas"></div>
+          <svg class="seta" viewBox="0 0 13 21" aria-hidden="true"><path d="M0 0v17l4-4 3 7 3-1-3-7h5z" fill="#fff" stroke="#000"/></svg>
+        </div>
+        <img id="demo" src="demo.gif" alt="Gravação do Tela 2: uma janela arrastada para o iPad" hidden>
+        <div class="contador" aria-live="off">
+          <span>quadro <b id="quadro">0</b></span>
+          <span><b>17,4</b> q/s · 1024×768</span>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <section id="problema" class="tom-2">
+    <div class="caixa duas">
+      <div class="surge">
+        <h2>Três portas fechadas</h2>
+        <p>Comprar um monitor custava mais de R$ 200. Havia um iPad 3 parado na gaveta,
+          com tela boa e Wi-Fi. O problema era fazer o Windows falar com ele.</p>
+      </div>
+      <ul class="barreiras surge">
+        <li><strong>32 bits, iOS 9.3.6</strong><span>É a última versão que o iPad 3 aceita. Nada novo instala nele.</span></li>
+        <li><strong>Spacedesk não instala</strong><span>A App Store diz “não compatível”: o app é só 64 bits.</span></li>
+        <li><strong>A versão web também falha</strong><span>O visualizador pelo navegador precisa de WebSocket, e o Safari do iOS 9 dá “não foi possível criar websocket”.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="como">
+    <div class="caixa">
+      <h2 class="surge">Só o que o Safari antigo entende</h2>
+      <p class="surge">Sem WebSocket, sem app, sem jailbreak. O PC manda uma imagem por vez;
+        o iPad pede a próxima assim que a anterior chega, e devolve os toques como cliques.</p>
+      <pre class="surge" aria-label="Diagrama do fluxo entre o PC e o iPad"><span class="a">Windows</span>
+monitor virtual 1024×768
+  │  captura (mss)
+  ▼
+desenha o cursor e comprime em JPEG (Pillow)
+  │
+  ▼
+servidor HTTP :8080  ── HTTP/1.1 keep-alive ──▶  <span class="a">Safari, iOS 9</span>
+  ▲                                              página em ES5 troca a &lt;img&gt;
+  │                                              a cada quadro (/frame.jpg)
+  └──────────── /toque?a=clique&amp;x=…&amp;y=… ◀──────  toque vira XMLHttpRequest
+move e clica o mouse (Win32)</pre>
+      <ul class="decisoes">
+        <li class="surge"><h3>Uma imagem por pedido</h3><p>O iPad pede <code>/frame.jpg</code> e só pede o próximo quando o anterior aparece. O ritmo se ajusta sozinho ao que o iPad aguenta.</p></li>
+        <li class="surge"><h3>Uma conexão só</h3><p>Com HTTP/1.1 e keep-alive, o iPad não abre uma conexão TCP nova a cada quadro. No Wi-Fi do iPad 3, isso faz diferença.</p></li>
+        <li class="surge"><h3>Toque que não se perde</h3><p>A imagem é trocada 17 vezes por segundo, e o iOS perde o gesto se o elemento tocado some. Uma camada fixa transparente recebe os toques.</p></li>
+        <li class="surge"><h3>Chave e travas</h3><p>Como o toque controla o mouse do PC, imagem e toque exigem uma chave de 6 dígitos. Cinco erros bloqueiam o aparelho por 5 minutos, e o servidor se recusa a usar a tela principal.</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="resultados" class="tom-2">
+    <div class="caixa">
+      <h2 class="surge">O que o iPad 3 aguentou</h2>
+      <div class="numeros">
+        <div class="numero surge"><strong>17,4<span class="u">q/s</span></strong><span>de média em 1024 × 768, contados pelo servidor.</span></div>
+        <div class="numero surge"><strong>30<span class="u">min</span></strong><span>seguidos com imagem, sem congelar.</span></div>
+        <div class="numero surge"><strong>3<span class="u">gestos</span></strong><span>tocar, arrastar e segurar viram clique, arrasto e botão direito.</span></div>
+        <div class="numero surge"><strong>0<span class="u">apps</span></strong><span>instalados no iPad. Só o Safari e um ícone na Tela de Início.</span></div>
+      </div>
+      <p class="nota surge">Medido num iPad 3 (A1430) no Wi-Fi de casa, com o PC no cabo. O atraso ficou baixo na percepção de uso; não foi cronometrado.</p>
+    </div>
+  </section>
+
+  <section id="limites">
+    <div class="caixa duas">
+      <h2 class="surge">Onde ele não chega</h2>
+      <ul class="limites surge">
+        <li>15 a 20 quadros por segundo é o teto do iPad 3: vídeo dá para assistir, mas não fica liso.</li>
+        <li>A tela dele é 2048 × 1536; o monitor virtual de 1024 × 768 é ampliado 2×.</li>
+        <li>Vídeos 16:9 ficam com faixas pretas, porque o iPad é 4:3.</li>
+        <li>Sem teclado pelo iPad, sem rolagem com dois dedos.</li>
+        <li>Só Windows, e só na rede de casa: é HTTP sem criptografia. Nada de rede pública marcada como privada, nem porta aberta no roteador.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="usar" class="tom-2">
+    <div class="caixa duas">
+      <div class="surge">
+        <h2>Para rodar o seu</h2>
+        <p>Precisa de Python 3 e de um driver de monitor virtual, como o
+          <a href="https://github.com/VirtualDrivers/Virtual-Display-Driver">Virtual Display Driver</a>.
+          O passo a passo completo, com firewall e resolução, está no README.</p>
+      </div>
+      <div class="comandos surge">
+        <pre>pip install -r requirements.txt
+python servidor.py</pre>
+        <p>O servidor mostra o endereço com a chave, por exemplo
+          <code>http://192.168.0.10:8080/?chave=123456</code>. Abra no Safari do iPad e adicione à Tela de Início.</p>
+        <p><a class="botao" data-repo href="https://github.com/">Abrir o repositório</a></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="caixa">
+    <p class="nome-grande" aria-hidden="true">Tela 2</p>
+    <div class="rodape-fim">
+      <p>Código aberto sob a licença MIT, por Guilherme Santos Souza. Monitor virtual pelo
+        <a href="https://github.com/VirtualDrivers/Virtual-Display-Driver">Virtual Display Driver</a>, de VirtualDrivers.
+        Captura com <a href="https://github.com/BoboTiG/python-mss">mss</a> e JPEG com <a href="https://python-pillow.org/">Pillow</a>.</p>
+      <p><a data-repo href="https://github.com/">Repositório no GitHub</a></p>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  document.documentElement.className += ' js';
+
+  /* Link do repositorio a partir do endereco do GitHub Pages (usuario.github.io/repo). */
+  var host = location.hostname, partes = location.pathname.split('/').filter(Boolean);
+  if (/\.github\.io$/.test(host) && partes.length) {
+    var repo = 'https://github.com/' + host.split('.')[0] + '/' + partes[0];
+    document.querySelectorAll('[data-repo]').forEach(function (a) { a.href = repo; });
+  }
+
+  /* GIF de demonstracao: aparece quando docs/demo.gif existir. */
+  var demo = document.getElementById('demo');
+  var teste = new Image();
+  teste.onload = function () { demo.hidden = false; };
+  teste.src = demo.getAttribute('src');
+
+  /* Contador de quadros no ritmo medido (17,4 por segundo). */
+  var quadro = document.getElementById('quadro');
+  var calmo = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!calmo) {
+    var n = 0;
+    setInterval(function () { n += 1; quadro.textContent = n; }, 1000 / 17.4);
+  } else {
+    quadro.textContent = '17';
+  }
+
+  /* Entrada das secoes. */
+  var itens = document.querySelectorAll('.surge');
+  if (!('IntersectionObserver' in window)) {
+    itens.forEach(function (el) { el.classList.add('visto'); });
+    return;
+  }
+  var obs = new IntersectionObserver(function (entradas) {
+    entradas.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add('visto'); obs.unobserve(e.target); }
+    });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  itens.forEach(function (el, i) {
+    el.style.transitionDelay = (i % 4) * 70 + 'ms';
+    obs.observe(el);
+  });
+})();
+</script>
+</body>
+</html>

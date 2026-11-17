@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Tela 2">
+<link rel="apple-touch-icon" href="/icone.png">
+<title>Tela 2</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+  #tela { display: block;
+          -webkit-user-select: none; -webkit-touch-callout: none; }
+  /* Camada fixa que recebe os toques: a imagem e trocada a cada quadro, e no iOS
+     o toque se perde se o elemento tocado sai da pagina no meio do gesto. */
+  #toque { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 1;
+           -webkit-tap-highlight-color: rgba(0, 0, 0, 0); }
+  #aviso { position: fixed; left: 0; right: 0; bottom: 0; display: none; z-index: 2;
+           padding: 12px 16px; background: rgba(0, 0, 0, 0.8); color: #e6e6e6;
+           font: 15px -apple-system, Helvetica, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<img id="tela" alt="">
+<div id="toque"></div>
+<div id="aviso"></div>
+<script>
+/* JavaScript antigo (ES5) de proposito: o Safari do iOS 9 nao entende sintaxe moderna. */
+(function () {
+  var tela = document.getElementById('tela');
+  var aviso = document.getElementById('aviso');
+  var camada = document.getElementById('toque');
+  var falhas = 0;
+  /* Chave de acesso: vem da URL (?chave=...) e vai em todos os pedidos ao PC. */
+  var achou = /[?&]chave=([^&#]*)/.exec(location.search);
+  var chave = achou ? achou[1] : '';
+
+  function mostrarAviso(texto) {
+    aviso.innerHTML = texto;
+    aviso.style.display = texto ? 'block' : 'none';
+  }
+
+  var AVISO_SEM_CHAVE = 'Falta a chave de acesso. Abra o endere&ccedil;o completo, com <b>?chave=</b>, ' +
+                        'que aparece na janela do servidor no PC.';
+  var AVISO_CHAVE_ERRADA = 'Chave de acesso errada. Confira o endere&ccedil;o na janela do servidor no PC ' +
+                           'e, se mudou, recrie o &iacute;cone na Tela de In&iacute;cio.';
+  var AVISO_SEM_CONEXAO = 'Sem conex&atilde;o com o PC. Tentando de novo...';
+
+  /* Quando uma imagem falha, pergunta ao servidor se o problema e a chave (403) ou a conexao.
+     A acao "verificar" nao clica em nada. */
+  function explicarFalha() {
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 403) {
+          mostrarAviso(AVISO_CHAVE_ERRADA);
+        } else if (xhr.status === 429) {
+          mostrarAviso('Muitas tentativas com chave errada. Espere alguns minutos e confira o endere&ccedil;o.');
+        } else {
+          mostrarAviso(AVISO_SEM_CONEXAO);
+        }
+      }
+    };
+    xhr.open('GET', '/toque?chave=' + chave + '&a=verificar&x=0&y=0&t=' + new Date().getTime(), true);
+    xhr.send();
+  }
+
+  /* Encaixa a imagem inteira na area visivel, sem cortar e sem distorcer
+     (o Safari do iOS 9 nao tem object-fit). */
+  function encaixar(img) {
+    var w = window.innerWidth, h = window.innerHeight;
+    var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    if (!iw || !ih || !w || !h) { return; }
+    var escala = Math.min(w / iw, h / ih);
+    var lw = Math.floor(iw * escala), lh = Math.floor(ih * escala);
+    img.style.width = lw + 'px';
+    img.style.height = lh + 'px';
+    img.style.marginLeft = Math.floor((w - lw) / 2) + 'px';
+    img.style.marginTop = Math.floor((h - lh) / 2) + 'px';
+  }
+  window.onresize = function () { encaixar(tela); };
+  window.onorientationchange = window.onresize;
+
+  /* Toque: tocar = clique, arrastar o dedo = arrastar, segurar = botao direito.
+     Envia um pedido por vez; movimentos seguidos viram um so, para nao entupir o Wi-Fi. */
+  var fila = [], enviando = false;
+
+  function enviarToque(acao, x, y) {
+    var ultimo = fila[fila.length - 1];
+    if (acao === 'mover' && ultimo && ultimo.a === 'mover') {
+      ultimo.x = x; ultimo.y = y;
+    } else {
+      fila.push({ a: acao, x: x, y: y });
+    }
+    proximoToque();
+  }
+
+  function proximoToque() {
+    if (enviando || !fila.length) { return; }
+    var t = fila.shift();
+    var xhr = new XMLHttpRequest();
+    enviando = true;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState === 4) { enviando = false; proximoToque(); }
+    };
+    xhr.open('GET', '/toque?chave=' + chave + '&a=' + t.a + '&x=' + t.x.toFixed(4) + '&y=' + t.y.toFixed(4) +
+             '&t=' + new Date().getTime(), true);
+    xhr.send();
+  }
+
+  function posicao(e) {
+    var d = (e.changedTouches && e.changedTouches.length ? e.changedTouches : e.touches)[0];
+    var r = tela.getBoundingClientRect();
+    return { x: (d.clientX - r.left) / r.width, y: (d.clientY - r.top) / r.height,
+             cx: d.clientX, cy: d.clientY };
+  }
+
+  var inicio = null, arrastando = false, segurou = false, timerSegurar = null;
+
+  camada.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    if (e.touches.length > 1) { return; }
+    inicio = posicao(e);
+    arrastando = false;
+    segurou = false;
+    enviarToque('mover', inicio.x, inicio.y);
+    timerSegurar = setTimeout(function () {
+      segurou = true;
+      enviarToque('direito', inicio.x, inicio.y);
+    }, 600);
+  }, false);
+
+  camada.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    if (!inicio || segurou) { return; }
+    var p = posicao(e);
+    if (!arrastando) {
+      if (Math.abs(p.cx - inicio.cx) < 10 && Math.abs(p.cy - inicio.cy) < 10) { return; }
+      clearTimeout(timerSegurar);
+      arrastando = true;
+      enviarToque('baixo', inicio.x, inicio.y);
+    }
+    enviarToque('mover', p.x, p.y);
+  }, false);
+
+  function fimToque(e) {
+    e.preventDefault();
+    clearTimeout(timerSegurar);
+    if (!inicio) { return; }
+    var p = posicao(e);
+    if (arrastando) {
+      enviarToque('cima', p.x, p.y);
+    } else if (!segurou) {
+      enviarToque('clique', inicio.x, inicio.y);
+    }
+    inicio = null;
+  }
+  camada.addEventListener('touchend', fimToque, false);
+  camada.addEventListener('touchcancel', fimToque, false);
+
+  if (!chave) {
+    mostrarAviso(AVISO_SEM_CHAVE);
+    return;
+  }
+
+  /* Modo stream continuo (MJPEG): abrir com ?chave=...&modo=mjpeg */
+  if (/modo=mjpeg/.test(location.search)) {
+    tela.onerror = function () {
+      explicarFalha();
+      setTimeout(function () { tela.src = '/stream.mjpg?chave=' + chave + '&t=' + new Date().getTime(); }, 2000);
+    };
+    tela.onload = function () { encaixar(tela); mostrarAviso(''); };
+    tela.src = '/stream.mjpg?chave=' + chave + '&t=' + new Date().getTime();
+    return;
+  }
+
+  /* Modo padrao: pede um quadro por vez e troca a imagem quando o novo chega. */
+  function proximo() {
+    var img = new Image();
+    img.onload = function () {
+      img.id = 'tela';
+      encaixar(img);
+      tela.parentNode.replaceChild(img, tela);
+      tela = img;
+      falhas = 0;
+      mostrarAviso('');
+      proximo();
+    };
+    img.onerror = function () {
+      falhas++;
+      explicarFalha();
+      setTimeout(proximo, Math.min(falhas * 500, 3000));
+    };
+    img.src = '/frame.jpg?chave=' + chave + '&t=' + new Date().getTime();
+  }
+
+  proximo();
+})();
+</script>
+</body>
+</html>
